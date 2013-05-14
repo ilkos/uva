@@ -55,7 +55,24 @@ struct Matrix {
 	}
 
 	void print() const {
+		for (int i = 0; i < mSize; ++i) {
+			if (!i) printSep();
 
+			for (int j = 0; j < mSize; ++j) {
+				if (!j) cout << '|';
+				cout << (*this)(i, j) << '|';
+			}
+			cout << endl;
+
+			printSep();
+		}
+	}
+
+	void printSep() const {
+		string sep((2 * mSize) + 1, '-');
+		sep[0] = '+';
+		sep[sep.size() - 1] = '+';
+		cout << sep << endl;
 	}
 
 private:
@@ -64,28 +81,52 @@ private:
 };
 
 void dfs(int src, const AdjList& graph, vector<int>& entryTimes, int ignored) {
+	entryTimes.assign(graph.getNodes(), -1);
 
+	if (src == ignored) return;
+
+	int time = 0;
+	entryTimes[src] = time++;
+
+	stack<int> s;
+	s.push(src);
+
+	while (!s.empty()) {
+		int curr = s.top();
+		s.pop();
+
+		for (int i = 0; i < (int)graph.getLinks(curr).size(); ++i) {
+			int newNode = graph.getLinks(curr)[i];
+			if (newNode == ignored || entryTimes[newNode] >= 0) {
+				continue;
+			}
+
+			entryTimes[newNode] = time++;
+			s.push(newNode);
+		}
+	}
 }
 
 void solve(const AdjList& graph) {
-	Matrix solution;
+	Matrix<char> solution(graph.getNodes());
 
 	// dfs with all nodes
-	vector<int> entryTimes(graph.getNodes(), -1);
+	vector<int> entryTimes;
 	dfs(0, graph, entryTimes, -1);
 
-	// node 0 dominates by definition
-	//XXX
-
-	for (int i = 1; i < graph.getNodes(); ++i) {
+	for (int i = 0; i < graph.getNodes(); ++i) {
 		// assume that node #i is absent
-		vector<int> entryTimesInAbsence(graph.getNodes(), -1);
+		vector<int> entryTimesInAbsence;
 		dfs(0, graph, entryTimesInAbsence, i);
 
 		// diff
+		for (int j = 0; j < graph.getNodes(); ++j) {
+			solution(i, j) = ((entryTimes[j] >= 0 && entryTimesInAbsence[j] == -1) ? 'Y' : 'N');
+		}
 	}
 
 	// print solution
+	solution.print();
 }
 
 int main() {
@@ -102,13 +143,13 @@ int main() {
 				int t;
 				cin >> t;
 				if (t) {
-					graph.addLink(i, j);
+					graph.addLink(i, j, true);
 				}
 			}
 		}
 
 		cout << "Case " << caseNo << ":" << endl;
-		solve(matrix);
+		solve(graph);
 	}
 	return 0;
 }
