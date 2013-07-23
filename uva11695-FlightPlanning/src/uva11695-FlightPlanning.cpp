@@ -6,28 +6,42 @@
 #include <iostream>
 #include <vector>
 #include <stack>
-#include <set>
 #include <queue>
+#include <algorithm>
+#include <cassert>
 #include <limits>
 using namespace std;
 
-struct AdjList {
-	AdjList(int n) : mLinks(vector<set<int> >(n)) {}
+#ifdef ONLINE_JUDGE
+#define assert(x)
+#endif
 
-	void addLink(const int src, const int dst) {
-		mLinks[src].insert(dst);
-		mLinks[dst].insert(src);
+struct AdjList {
+	AdjList(int n) : mLinks(vector<vector<int> >(n)) {}
+
+	void addLink(const int src, const int dst, bool isDirected = false) {
+		assert(src >= 0 && src < (int) mLinks.size() && dst >= 0 && dst < (int) mLinks.size());
+
+		mLinks[src].push_back(dst);
+		if (!isDirected) {
+			mLinks[dst].push_back(src);
+		}
 	}
 
-	void removeLink(const int src, const int dst) {
-		mLinks[src].erase(dst);
-		mLinks[dst].erase(src);
+	void removeLink(const int src, const int dst, bool isDirected = false) {
+		assert(src >= 0 && src < (int) mLinks.size() && dst >= 0 && dst < (int) mLinks.size());
+		mLinks[src].erase(remove(mLinks[src].begin(), mLinks[src].end(), dst),
+				mLinks[src].end());
+
+		if (!isDirected) {
+			mLinks[dst].erase(remove(mLinks[dst].begin(), mLinks[dst].end(), src),
+					mLinks[dst].end());
+		}
 	}
 
 	int getSize() const {
 		return mLinks.size();
 	}
-
 	struct edge_iterator {
 		friend class AdjList;
 
@@ -48,7 +62,7 @@ struct AdjList {
 		}
 
 	private:
-		edge_iterator(const AdjList& adjList, vector<set<int> >::const_iterator srcIt) :
+		edge_iterator(const AdjList& adjList, vector<vector<int> >::const_iterator srcIt) :
 			adjList(adjList), srcIt(srcIt), dstIt(srcIt->begin()) {
 			if (!isValid()) {
 				getNextValid();
@@ -69,23 +83,23 @@ struct AdjList {
 		}
 
 		const AdjList& adjList;
-		vector<set<int> >::const_iterator srcIt;
-		set<int>::const_iterator dstIt;
+		vector<vector<int> >::const_iterator srcIt;
+		vector<int>::const_iterator dstIt;
 	};
 
 	edge_iterator begin() const {
 		return edge_iterator(*this, mLinks.begin());
 	}
 
-	vector<set<int> > mLinks;
+	vector<vector<int> > mLinks;
 };
 
 template <typename T>
 void dfs(const AdjList& graph, T visitor, const int src) {
-	vector<int> parent(graph.getSize(), -2);
+	vector<int> isVisited(graph.getSize());
 	stack<int> s;
 
-	parent[src] = -1;
+	isVisited[src] = true;
 	s.push(src);
 
 	while (!s.empty()) {
@@ -94,67 +108,52 @@ void dfs(const AdjList& graph, T visitor, const int src) {
 
 		visitor.visitNode(current);
 
-		for (set<int>::const_iterator it = graph.mLinks[current].begin(), itEnd = graph.mLinks[current].end();
-				it != itEnd;
-				++it) {
-			visitor.visitEdge(current, *it);
-
-			if (parent[*it] != -2) { // visited
+		for (int i = 0; i < (int) graph.mLinks[current].size(); ++i) {
+			int tgt = graph.mLinks[current][i];
+			if (isVisited[tgt]) {
 				continue;
 			}
 
-			parent[*it] = current;
-			s.push(*it);
+			isVisited[tgt] = true;
+			s.push(tgt);
 		}
 	}
 }
 
-struct CreateGraph {
-	CreateGraph(AdjList& newGraph) : newGraph(newGraph) {}
-
-	void visitNode(int node) {}
-	void visitEdge(int src, int dst) {
-		newGraph.addLink(src, dst); // bidirectional
-	}
-
-private:
-	AdjList& newGraph;
-};
-
-struct GetLeafNodes {
-	GetLeafNodes(const AdjList& graph, queue<int>& leaves) : graph(graph), leaves(leaves) {}
+struct GetOutDegreeNodes {
+	GetOutDegreeNodes(const AdjList& graph, vector<vector<int> >& links, queue<int>& leaves) :
+		graph(graph), links(links), leaves(leaves) {}
 
 	void visitNode(int node) {
-		if (graph.mLinks[node].size() <= 1) {
+		links[node] = graph.mLinks[node];
+
+		if (links[node].size() <= 1) {
 			leaves.push(node);
 		}
 	}
 
-	void visitEdge(int src, int dst) {}
-
 private:
 	const AdjList& graph;
+	vector<vector<int> >& links;
 	queue<int>& leaves;
 };
 
-int identifyCenter(const AdjList& igraph, int root) {
-	AdjList graph(igraph.getSize());
-	dfs(igraph, CreateGraph(graph), root);
-
+int identifyCenter(const AdjList& graph, int root) {
 	queue<int> leaves;
-	dfs(graph, GetLeafNodes(graph, leaves), root);
-	int node = -1;
+	vector<vector<int> > links(graph.getSize());
+	dfs(graph, GetOutDegreeNodes(graph, links, leaves), root);
+
+	int node;
 	while (!leaves.empty()) {
 		node = leaves.front();
 		leaves.pop();
 
-		const set<int>& linked = graph.mLinks[node];
+		if (links[node].size() > 0) {
+			int parent = links[node].front();
+			links[parent].erase(remove(links[parent].begin(), links[parent].end(), node),
+					links[parent].end());
 
-		if (linked.size() > 0) {
-			int parent = *linked.begin();
-			graph.removeLink(node, parent);
-
-			if (graph.mLinks[parent].size() == 1) {
+			if (links[parent].size() == 1) {
 				leaves.push(parent);
 			}
 		}
@@ -162,20 +161,18 @@ int identifyCenter(const AdjList& igraph, int root) {
 	return node;
 }
 
-int getTreeDiameter(const AdjList& graph, int root, int& height, vector<bool>& isVisited) {
+int getTreeDiameter(const AdjList& graph, int root, int& height, vector<int>& isVisited) {
 	isVisited[root] = true;
 
 	int fHeight = 0, sHeight = 0, maxDiameter = 0;
 	int numChildren = 0;
-	for (set<int>::const_iterator it = graph.mLinks[root].begin(), itEnd = graph.mLinks[root].end();
-			it != itEnd;
-			++it) {
-		if (isVisited[*it]) continue;
-
+	for (int i = 0; i < (int) graph.mLinks[root].size(); ++i) {
+		int tgt = graph.mLinks[root][i];
+		if (isVisited[tgt]) continue;
 		++numChildren;
 
 		// child node
-		int diameter = getTreeDiameter(graph, *it, height, isVisited);
+		int d = getTreeDiameter(graph, tgt, height, isVisited);
 		if (height > fHeight) {
 			sHeight = fHeight;
 			fHeight = height;
@@ -183,7 +180,7 @@ int getTreeDiameter(const AdjList& graph, int root, int& height, vector<bool>& i
 		else if (height > sHeight) {
 			sHeight = height;
 		}
-		maxDiameter = max(maxDiameter, diameter);
+		maxDiameter = max(maxDiameter, d);
 	}
 
 	if (!numChildren) {
@@ -206,31 +203,31 @@ void solve (AdjList& graph) {
 
 	vector<pair<int, int> > edges;
 	for (AdjList::edge_iterator it = graph.begin(); it.isValid(); ++it) {
-		if (it.src() > it.dst()) edges.push_back(make_pair(it.src(), it.dst()));
+		edges.push_back(make_pair(it.src(), it.dst()));
 	}
 
 	for (vector<pair<int, int> >::const_iterator it = edges.begin(), itEnd = edges.end(); it != itEnd; ++it) {
 		// by removing current edge we are left with two trees
 		graph.removeLink(it->first, it->second);
 
-		// identify the centre of each tree
-		int lCentral = identifyCenter(graph, it->first);
-		int rCentral = identifyCenter(graph, it->second);
-
-		graph.addLink(lCentral, rCentral);
-
-		vector<bool> isVisited(graph.getSize());
 		int height;
-		int d = getTreeDiameter(graph, it->first, height, isVisited);
+		vector<int> visited(graph.getSize());
+		int lDiameter = getTreeDiameter(graph, it->first, height, visited);
+		int rDiameter = getTreeDiameter(graph, it->second, height, visited);
+
+		int d = max(max(lDiameter, rDiameter), (lDiameter + 1) / 2 + (rDiameter + 1) / 2 + 1);
 
 		if (d < minDiameter) {
+			// identify the centre of each tree
+			int lCentral = identifyCenter(graph, it->first);
+			int rCentral = identifyCenter(graph, it->second);
+
 			minDiameter = d;
 			toRemove = make_pair(it->first, it->second);
 			toAdd = make_pair(lCentral, rCentral);
 		}
 
 		// restore original graph
-		graph.removeLink(lCentral, rCentral);
 		graph.addLink(it->first, it->second);
 	}
 
@@ -241,7 +238,9 @@ void solve (AdjList& graph) {
 
 int main() {
 	int nCases = 1;
-	// cin >> nCases;
+#ifdef ONLINE_JUDGE
+	cin >> nCases;
+#endif
 
 	for (int current = 1; current <= nCases; ++current) {
 		int n;
